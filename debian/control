@@ -6,7 +6,18 @@ Build-Depends:
  debhelper (>= 9),
  dh-python,
  python-all,
- python-setuptools
+ python-setuptools,
+ python-astropy,
+ python-ephem,
+ python-future,
+ python-h5py,
+ python-matplotlib,
+ python-networkx,
+ python-numpy,
+ python-scipy,
+ python-pandas,
+ python-pynfft,
+ python-skimage
 Standards-Version: 3.9.8
 Homepage: https://github.com/achael/eht-imaging
 X-Python-Version: >= 2.6
@@ -18,16 +29,7 @@ Multi-Arch: foreign
 Depends:
  ${python:Depends},
  ${misc:Depends},
- ${shlibs:Depends},
- python-astropy,
- python-ephem,
- python-future,
- python-h5py,
- python-matplotlib,
- python-networkx,
- python-numpy,
- python-scipy,
- python-skimage
+ ${shlibs:Depends}
 Description: Python modules for simulating and manipulating VLBI data
  and producing images with regularized maximum likelihood methods.
  This version is an early release so please submit a pull request or
