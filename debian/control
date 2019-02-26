@@ -1,23 +1,35 @@
 Source: eht-imaging
 Section: science
-Priority: optional
+Priority: extra
 Maintainer: Athanaseus Ramaila <aramaila@ska.ac.za>
 Build-Depends:
- debhelper (>= 10),
+ debhelper (>= 9),
  dh-python,
  python-all,
  python-setuptools
-Standards-Version: 4.1.2
+Standards-Version: 3.9.8
 Homepage: https://github.com/achael/eht-imaging
-X-Python-Version: >= 2.7
+X-Python-Version: >= 2.6
 
-Package: python-eht-imaging
-Architecture: all
-Depends: ${python:Depends}, ${misc:Depends}
+Package: eht-imaging
+Architecture: any
+section: python
+Multi-Arch: foreign
+Depends:
+ ${python:Depends},
+ ${misc:Depends},
+ ${shlibs:Depends},
+ python-astropy,
+ python-ephem,
+ python-future,
+ python-h5py,
+ python-matplotlib,
+ python-networkx,
+ python-numpy,
+ python-scipy,
+ python-skimage
 Description: Python modules for simulating and manipulating VLBI data
  and producing images with regularized maximum likelihood methods.
  This version is an early release so please submit a pull request or
  email achael@cfa.harvard.edu if you have trouble or need help for
  your application.
- .
- This package installs the library for Python 2.
