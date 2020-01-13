@@ -1409,18 +1409,30 @@ class Obsdata(object):
 
         return out
     
-    def rescale_zbl(self, totflux, uv_min, debias=True):
-        
-        obs_zerobl = self.flag_uvdist(uv_max=uv_min)
-        obs_zerobl.add_amp(debias=debias)
+    def rescale_zbl(self, totflux, uv_max, debias=True):
+        """Rescale the short baselines to a new level of total flux.
+
+           Args:
+               totflux (float): new total flux to rescale to
+               uv_max (float): maximum baseline length to rescale
+               debias (bool): Debias amplitudes before computing original total flux from short bls
+
+           Returns:
+               (Obsdata): An Obsdata object with the inflated noise values.
+        """
+
+        # estimate the original total flux 
+        obs_zerobl = self.flag_uvdist(uv_max=uv_max)
+        obs_zerobl.add_amp(debias=True)
         orig_totflux = np.sum(obs_zerobl.amp['amp']*(1/obs_zerobl.amp['sigma']**2))/np.sum(1/obs_zerobl.amp['sigma']**2)
 
         print('Rescaling zero baseline by ' + str(orig_totflux - totflux) + ' Jy to ' + str(totflux) + ' Jy')
 
-        # Rescale short baselines to excize contributions from extended flux (note: this does not do the proper thing for fractional polarization)
+        # Rescale short baselines to excise contributions from extended flux
+        # Note: this does not do the proper thing for fractional polarization)
         obs = self.copy()
         for j in range(len(obs.data)):
-            if (obs.data['u'][j]**2 + obs.data['v'][j]**2)**0.5 < uv_min:
+            if (obs.data['u'][j]**2 + obs.data['v'][j]**2)**0.5 < uv_max:
                 obs.data['vis'][j] *= totflux / orig_totflux
                 obs.data['qvis'][j] *= totflux / orig_totflux
                 obs.data['uvis'][j] *= totflux / orig_totflux
@@ -3590,19 +3602,20 @@ class Obsdata(object):
 
         return
 
-    def save_uvfits(self, fname, force_singlepol=False):
+    def save_uvfits(self, fname, force_singlepol=False, polrep_out='circ'):
 
         """Save visibility data to uvfits file.
 
            Args:
                 fname (str): path to output text file
                 force_singlepol (str): if 'R' or 'L', will interpret stokes I field as 'RR' or 'LL'
+                polrep_out (str): 'circ' or 'stokes': how data should be stored in the uvfits file
         """
 
         if force_singlepol!=False and self.polrep!='stokes':
             raise Exception("force_singlepol is incompatible with polrep!='stokes'")
 
-        ehtim.io.save.save_obs_uvfits(self,fname,force_singlepol=force_singlepol)
+        ehtim.io.save.save_obs_uvfits(self,fname,force_singlepol=force_singlepol, polrep_out=polrep_out)
 
         return
 
@@ -3682,7 +3695,8 @@ def load_txt(fname, polrep='stokes'):
 
     return ehtim.io.load.load_obs_txt(fname, polrep=polrep)
 
-def load_uvfits(fname, flipbl=False, remove_nan=False, force_singlepol=None, channel=all, IF=all, polrep='stokes', ):
+def load_uvfits(fname, flipbl=False, remove_nan=False, force_singlepol=None,
+                channel=all, IF=all, polrep='stokes', allow_singlepol=True):
 
     """Load observation data from a uvfits file.
        Args:
@@ -3691,14 +3705,16 @@ def load_uvfits(fname, flipbl=False, remove_nan=False, force_singlepol=None, cha
            remove_nan (bool): True to remove nans from missing polarizations
            polrep (str): load data as either 'stokes' or 'circ'
            force_singlepol (str): 'R' or 'L' to load only 1 polarization
-           channel (list): list of channels to average in the import. channel=all averages all channels
+           channel (list): list of channels to average in the import. channel=all averages all
            IF (list): list of IFs to  average in  the import. IF=all averages all IFS
 
        Returns:
            obs (Obsdata): Obsdata object loaded from file
     """
 
-    return ehtim.io.load.load_obs_uvfits(fname, flipbl=flipbl, force_singlepol=force_singlepol, channel=channel, IF=IF, polrep=polrep, remove_nan=remove_nan)
+    return ehtim.io.load.load_obs_uvfits(fname, flipbl=flipbl, force_singlepol=force_singlepol, 
+                                         channel=channel, IF=IF, polrep=polrep, 
+                                         remove_nan=remove_nan, allow_singlepol=allow_singlepol)
 
 def load_oifits(fname, flux=1.0):
 

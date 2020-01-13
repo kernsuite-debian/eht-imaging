@@ -22,6 +22,7 @@ import ehtim.image
 import ehtim.vex
 import ehtim.closure
 import ehtim.caltable
+import ehtim.parloop
 
 from ehtim.imaging.imager_utils import imager_func
 from ehtim.calibrating import self_cal
@@ -45,7 +46,7 @@ from ehtim.const_def import *
 
 try:
     import pkg_resources
-    version = pkg_resources.require("ehtim")[0].version
+    version = pkg_resources.get_distribution("ehtim").version
     print("Welcome to eht-imaging! v ",version)
 except:
     print("Welcome to eht-imaging!")
