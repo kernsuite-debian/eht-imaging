@@ -1,58 +1,26 @@
 Source: eht-imaging
 Section: science
 Priority: extra
-Maintainer: Athanaseus Ramaila <aramaila@ska.ac.za>
+Maintainer: KERN packaging <packaging@kernsuite.info>
 Build-Depends:
- debhelper (>= 9),
+ debhelper (>= 10),
  dh-python,
- python-all,
  python3-all,
- python-astropy,
  python3-astropy,
- python-ephem,
  python3-ephem,
- python-future,
  python3-future,
- python-h5py,
  python3-h5py,
- python-ipython,
  python3-ipython,
- python-matplotlib,
  python3-matplotlib,
- python-numpy,
  python3-numpy,
- python-networkx,
  python3-networkx,
- python-pil.imagetk,
  python3-pil.imagetk,
- python-scipy,
  python3-scipy,
- python-setuptools,
  python3-setuptools,
- python-skimage,
  python3-skimage
-Standards-Version: 3.9.8
+Standards-Version: 4.5.0
 Homepage: https://github.com/achael/eht-imaging
-X-Python-Version: >= 2.6
 X-Python3-Version: >= 3.4
-
-Package: python-eht-imaging
-Architecture: any
-Section: python
-Multi-Arch: foreign
-Depends:
- ${python:Depends},
- ${misc:Depends},
- python-pandas,
- python-pynfft
-Provides: ${python3:Provides}
-Description: Python modules for simulating and manipulating VLBI data
- and producing images with regularized maximum likelihood methods.
- This version is an early release so please submit a pull request or
- email achael@cfa.harvard.edu if you have trouble or need help for
- your application.
- .
- This package installs the library for Python 2.
 
 Package: python3-eht-imaging
 Architecture: any
