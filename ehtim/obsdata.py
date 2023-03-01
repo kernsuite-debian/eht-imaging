@@ -102,7 +102,8 @@ class Obsdata(object):
 
     def __init__(self, ra, dec, rf, bw, datatable, tarr, scantable=None,
                  polrep='stokes', source=ehc.SOURCE_DEFAULT, mjd=ehc.MJD_DEFAULT, timetype='UTC',
-                 ampcal=True, phasecal=True, opacitycal=True, dcal=True, frcal=True):
+                 ampcal=True, phasecal=True, opacitycal=True, dcal=True, frcal=True,
+                 trial_speedups=False):
         """A polarimetric VLBI observation of visibility amplitudes and phases (in Jy).
 
            Args:
@@ -171,8 +172,10 @@ class Obsdata(object):
         self.tarr = tarr
         self.tkey = {self.tarr[i]['site']: i for i in range(len(self.tarr))}
         if np.any(self.tarr['sefdr'] != 0) or np.any(self.tarr['sefdl'] != 0):
-            self.reorder_tarr_sefd()
-        self.reorder_baselines()
+            self.reorder_tarr_sefd(reorder_baselines=False)
+            
+        # reorder baselines to uvfits convention
+        self.reorder_baselines(trial_speedups=trial_speedups)
 
         # Get tstart, mjd and tstop
         times = self.unpack(['time'])['time']
@@ -327,73 +330,148 @@ class Obsdata(object):
 
         return newobs
 
-    def reorder_baselines(self):
+    def reorder_baselines(self, trial_speedups=False):
         """Reorder baselines to match uvfits convention, based on the telescope array ordering
         """
+        if trial_speedups:
+            self.reorder_baselines_trial_speedups()
+        
+        else: # original code
+        
+            # Time partition the datatable
+            datatable = self.data.copy()
+            datalist = []
+            for key, group in it.groupby(datatable, lambda x: x['time']):
+                #print(key*60*60,len(list(group)))
+                datalist.append(np.array([obs for obs in group]))
 
-        # Time partition the datatable
-        datatable = self.data.copy()
-        datalist = []
-        for key, group in it.groupby(datatable, lambda x: x['time']):
-            datalist.append(np.array([obs for obs in group]))
+            # loop through all data
+            obsdata = []
+            for tlist in datalist:
+                blpairs = []
+                for dat in tlist:
+                    # Remove conjugate baselines
+                    if not (set((dat['t1'], dat['t2']))) in blpairs:         
 
-        # Remove conjugate baselines
-        obsdata = []
-        for tlist in datalist:
-            blpairs = []
-            for dat in tlist:
-                if not (set((dat['t1'], dat['t2']))) in blpairs:
+                        # Reverse the baseline in the right order for uvfits:
+                        if(self.tkey[dat['t2']] < self.tkey[dat['t1']]):
 
-                    # Reverse the baseline in the right order for uvfits:
-                    if(self.tkey[dat['t2']] < self.tkey[dat['t1']]):
+                            (dat['t1'], dat['t2']) = (dat['t2'], dat['t1'])
+                            (dat['tau1'], dat['tau2']) = (dat['tau2'], dat['tau1'])
+                            dat['u'] = -dat['u']
+                            dat['v'] = -dat['v']
 
-                        (dat['t1'], dat['t2']) = (dat['t2'], dat['t1'])
-                        (dat['tau1'], dat['tau2']) = (dat['tau2'], dat['tau1'])
-                        dat['u'] = -dat['u']
-                        dat['v'] = -dat['v']
+                            if self.polrep == 'stokes':
+                                dat['vis'] = np.conj(dat['vis'])
+                                dat['qvis'] = np.conj(dat['qvis'])
+                                dat['uvis'] = np.conj(dat['uvis'])
+                                dat['vvis'] = np.conj(dat['vvis'])
+                            elif self.polrep == 'circ':
+                                dat['rrvis'] = np.conj(dat['rrvis'])
+                                dat['llvis'] = np.conj(dat['llvis'])
+                                # must switch l & r !!
+                                rl = dat['rlvis'].copy()
+                                lr = dat['lrvis'].copy()
+                                dat['rlvis'] = np.conj(lr)
+                                dat['lrvis'] = np.conj(rl)
+                            else:
+                                raise Exception("polrep must be either 'stokes' or 'circ'")
 
-                        if self.polrep == 'stokes':
-                            dat['vis'] = np.conj(dat['vis'])
-                            dat['qvis'] = np.conj(dat['qvis'])
-                            dat['uvis'] = np.conj(dat['uvis'])
-                            dat['vvis'] = np.conj(dat['vvis'])
-                        elif self.polrep == 'circ':
-                            dat['rrvis'] = np.conj(dat['rrvis'])
-                            dat['llvis'] = np.conj(dat['llvis'])
-                            # must switch l & r !!
-                            rl = dat['rlvis'].copy()
-                            lr = dat['lrvis'].copy()
-                            dat['rlvis'] = np.conj(lr)
-                            dat['lrvis'] = np.conj(rl)
-                        else:
-                            raise Exception("polrep must be either 'stokes' or 'circ'")
+                        # Append the data point
+                        blpairs.append(set((dat['t1'], dat['t2'])))
+                        obsdata.append(dat)
 
-                    # Append the data point
-                    blpairs.append(set((dat['t1'], dat['t2'])))
-                    obsdata.append(dat)
+            obsdata = np.array(obsdata, dtype=self.poltype)
 
-        obsdata = np.array(obsdata, dtype=self.poltype)
+            # Timesort data
+            obsdata = obsdata[np.argsort(obsdata, order=['time', 't1'])]
 
-        # Timesort data
-        obsdata = obsdata[np.argsort(obsdata, order=['time', 't1'])]
-
-        # Save the data
-        self.data = obsdata
+            # Save the data
+            self.data = obsdata
 
         return
 
-    def reorder_tarr_sefd(self):
+    def reorder_baselines_trial_speedups(self):
+        """Reorder baselines to match uvfits convention, based on the telescope array ordering
+        """
+
+        dat = self.data.copy()
+              
+        ############ Ensure correct baseline order
+        # TODO can these be faster? 
+        t1nums = np.fromiter([self.tkey[t] for t in dat['t1']],int) 
+        t2nums = np.fromiter([self.tkey[t] for t in dat['t2']],int) 
+        
+        # which entries are in the wrong telescope order?
+        ordermask = t2nums < t1nums
+        
+        # flip the order of these entries
+        t1 = dat['t1'].copy()
+        t2 = dat['t2'].copy()
+        tau1 = dat['tau1'].copy()
+        tau2 = dat['tau2'].copy()     
+          
+        dat['t1'][ordermask] = t2[ordermask]
+        dat['t2'][ordermask] = t1[ordermask]
+        dat['tau1'][ordermask] = tau2[ordermask]
+        dat['tau2'][ordermask] = tau1[ordermask]
+        dat['u'][ordermask] *= -1
+        dat['v'][ordermask] *= -1
+                    
+        if self.polrep=='stokes':
+            dat['vis'][ordermask]  = np.conj(dat['vis'][ordermask])
+            dat['qvis'][ordermask] = np.conj(dat['qvis'][ordermask])
+            dat['uvis'][ordermask] = np.conj(dat['uvis'][ordermask])
+            dat['vvis'][ordermask] = np.conj(dat['vvis'][ordermask])                         
+
+        elif self.polrep == 'circ':
+            dat['rrvis'][ordermask] = np.conj(dat['rrvis'][ordermask])
+            dat['llvis'][ordermask] = np.conj(dat['llvis'][ordermask])
+            rl = dat['rlvis'].copy()
+            lr = dat['lrvis'].copy()
+            dat['rlvis'][ordermask] = np.conj(lr[ordermask])
+            dat['lrvis'][ordermask] = np.conj(rl[ordermask])            
+        else:
+            raise Exception("polrep must be either 'stokes' or 'circ'")
+
+        # Remove duplicate or conjugate entries at any timestep
+        # Since telescope order has been sorted conjugates should appear as duplicates
+        timeblcombos = np.vstack((dat['time'],t1nums,t2nums)).T        
+        uniqdat, uniqdatinv = np.unique(timeblcombos,axis=0, return_inverse=True)
+        
+        if len(uniqdat) != len(dat): 
+            print("WARNING: removing duplicate/conjuagte points in reorder_baselines!")
+            deletemask = np.ones(len(dat)).astype(bool)
+
+            for j in len(uniqdat):
+                idxs = np.argwhere(uniqdatinv==j)[:,0]
+                for idx in idxs[1:]: # delete all but first occurance
+                    deletemask[idx] = False
+            
+            # remove duplicates   
+            dat_unique = dat[deletemask]                 
+                  
+        # sort data
+        dat = dat[np.argsort(dat, order=['time', 't1'])]
+
+        # save the data
+        self.data = dat
+
+        return
+
+    def reorder_tarr_sefd(self, reorder_baselines=True):
         """Reorder the telescope array by SEFD minimal to maximum.
         """
 
         sorted_list = sorted(self.tarr, key=lambda x: np.sqrt(x['sefdr']**2 + x['sefdl']**2))
         self.tarr = np.array(sorted_list, dtype=ehc.DTARR)
         self.tkey = {self.tarr[i]['site']: i for i in range(len(self.tarr))}
-        self.reorder_baselines()
+        if reorder_baselines:
+            self.reorder_baselines()
 
         return
 
-    def reorder_tarr_snr(self):
+    def reorder_tarr_snr(self, reorder_baselines=True):
         """Reorder the telescope array by median SNR maximal to minimal.
         """
 
@@ -403,11 +481,12 @@ class Obsdata(object):
         idx = np.argsort(snr_median)[::-1]
         self.tarr = self.tarr[idx]
         self.tkey = {self.tarr[i]['site']: i for i in range(len(self.tarr))}
-        self.reorder_baselines()
+        if reorder_baselines:
+            self.reorder_baselines()
 
         return
 
-    def reorder_tarr_random(self):
+    def reorder_tarr_random(self, reorder_baselines=True):
         """Randomly reorder the telescope array.
         """
 
@@ -415,7 +494,8 @@ class Obsdata(object):
         np.random.shuffle(idx)
         self.tarr = self.tarr[idx]
         self.tkey = {self.tarr[i]['site']: i for i in range(len(self.tarr))}
-        self.reorder_baselines()
+        if reorder_baselines:
+            self.reorder_baselines()
 
         return
 
@@ -505,6 +585,7 @@ class Obsdata(object):
                     data, lambda x: np.searchsorted(self.scans[:, 0], x['time'])):
                 datalist.append(np.array([obs for obs in group]))
 
+#        return np.array(datalist, dtype=object)
         return np.array(datalist)
 
     def split_obs(self, t_gather=0., scan_gather=False):
@@ -553,6 +634,7 @@ class Obsdata(object):
         for key, group in it.groupby(data[idx], lambda x: set((x['t1'], x['t2']))):
             datalist.append(np.array([obs for obs in group]))
 
+#        return np.array(datalist, dtype=object)
         return np.array(datalist)
 
     def unpack_bl(self, site1, site2, fields, ang_unit='deg', debias=False, timetype=False):
@@ -596,6 +678,7 @@ class Obsdata(object):
 
                     allout.append(out)
 
+#        return np.array(allout, dtype=object)
         return np.array(allout)
 
     def unpack(self, fields, mode='all', ang_unit='deg', debias=False, conj=False, timetype=False):
@@ -959,6 +1042,7 @@ class Obsdata(object):
 
         # TODO -- should import this at top, but the circular dependencies create a mess...
         import ehtim.imaging.imager_utils as iu
+        import ehtim.modeling.modeling_utils as mu
 
         # Movie -- weighted sum of all frame chi^2 values
         if hasattr(im_or_mov, 'get_image'):
@@ -990,6 +1074,11 @@ class Obsdata(object):
                 num_list.append(len(data))
 
             chisq = np.sum(np.array(num_list) * np.array(chisq_list)) / np.sum(num_list)
+
+        # Model -- single chi^2
+        elif hasattr(im_or_mov,'N_models'):            
+            (data, sigma, uv, jonesdict) = mu.chisqdata(self, dtype, pol, **kwargs)
+            chisq = mu.chisq(im_or_mov, uv, data, sigma, dtype, jonesdict)
 
         # Image -- single chi^2
         else:
@@ -1093,7 +1182,7 @@ class Obsdata(object):
         (timesout, uout, vout) = obsh.compute_uv_coordinates(arr, site1, site2, times,
                                                              self.mjd, self.ra, self.dec, self.rf,
                                                              timetype=self.timetype,
-                                                             elevmin=0, elevmax=90)
+                                                             elevmin=0, elevmax=90, no_elevcut_space=False)
 
         if len(timesout) != len(times):
             raise Exception(
@@ -1645,7 +1734,7 @@ class Obsdata(object):
         # TODO -- different beam weightings
         im = np.array([[np.mean(weights * np.cos(-2 * np.pi * (i * u + j * v)))
                         for i in xlist]
-                       for j in xlist])
+                        for j in xlist])
 
         im = im[0:npix, 0:npix]
         im = im / np.sum(im)  # Normalize to a total beam power of 1
@@ -1680,7 +1769,7 @@ class Obsdata(object):
 
         dim = np.array([[np.mean(weights * np.cos(-2 * np.pi * (i * u + j * v)))
                          for i in xlist]
-                        for j in xlist])
+                         for j in xlist])
         normfac = 1. / np.sum(dim)
 
         for label in ['vis1', 'vis2', 'vis3', 'vis4']:
@@ -1693,7 +1782,7 @@ class Obsdata(object):
             im = np.array([[np.mean(weights * (np.real(vis) * np.cos(-2 * np.pi * (i * u + j * v)) -
                                                np.imag(vis) * np.sin(-2 * np.pi * (i * u + j * v))))
                             for i in xlist]
-                           for j in xlist])
+                            for j in xlist])
 
             # Final normalization
             im = im * normfac
@@ -2813,7 +2902,7 @@ class Obsdata(object):
                vtype (str): The visibilty type ('vis','qvis','uvis','vvis','pvis')
                             from which to assemble closure phases
                count (str): If 'min', return minimal set of phases,
-                            If 'min-cut0bl' return minimal set after flaggin zero-baselines
+                            If 'min-cut0bl' return minimal set after flagging zero-baselines
                ang_unit (str): If 'deg', return closure phases in degrees, else return in radians
                timetype (str): 'UTC' or 'GMST'
                uv_min (float): flag baselines shorter than this before forming closure quantities
@@ -2984,7 +3073,7 @@ class Obsdata(object):
             timetype = self.timetype
 
         if method=='from_maxset' and (vtype in ['lrvis','pvis','rlvis']):
-            print ("Warning! method='from_maxset' default in bispectra_tri() is inconsistent with vtype=%s" % vtype)
+            print ("Warning! method='from_maxset' default in bispectra_tri() inconsistent with vtype=%s" % vtype)
             print ("Switching to method='from_vis'")
             method = 'from_vis'
 
@@ -3843,7 +3932,7 @@ class Obsdata(object):
         return outdata
 
     def plotall(self, field1, field2,
-                conj=False, debias=True, tag_bl=False, ang_unit='deg', timetype=False,
+                conj=False, debias=False, tag_bl=False, ang_unit='deg', timetype=False,
                 axis=False, rangex=False, rangey=False, snrcut=0.,
                 color=ehc.SCOLORS[0], marker='o', markersize=ehc.MARKERSIZE, label=None,
                 grid=True, ebar=True, axislabels=True, legend=False,
@@ -4071,7 +4160,7 @@ class Obsdata(object):
         return x
 
     def plot_bl(self, site1, site2, field,
-                debias=True, ang_unit='deg', timetype=False,
+                debias=False, ang_unit='deg', timetype=False,
                 axis=False, rangex=False, rangey=False, snrcut=0.,
                 color=ehc.SCOLORS[0], marker='o', markersize=ehc.MARKERSIZE, label=None,
                 grid=True, ebar=True, axislabels=True, legend=False,
@@ -4482,20 +4571,38 @@ class Obsdata(object):
 
     def save_uvfits(self, fname, force_singlepol=False, polrep_out='circ'):
         """Save visibility data to uvfits file.
-
            Args:
-                fname (str): path to output text file
+                fname (str): path to output uvfits file.
                 force_singlepol (str): if 'R' or 'L', will interpret stokes I field as 'RR' or 'LL'
                 polrep_out (str): 'circ' or 'stokes': how data should be stored in the uvfits file
         """
 
         if (force_singlepol is not False) and (self.polrep != 'stokes'):
-            raise Exception("force_singlepol is incompatible with polrep!='stokes'")
+            raise Exception(
+                "force_singlepol is incompatible with polrep!='stokes'")
 
-        ehtim.io.save.save_obs_uvfits(self, fname,
-                                      force_singlepol=force_singlepol, polrep_out=polrep_out)
+        output = ehtim.io.save.save_obs_uvfits(self, fname,
+                                               force_singlepol=force_singlepol, polrep_out=polrep_out)
 
         return
+
+    def make_hdulist(self, force_singlepol=False, polrep_out='circ'):
+        """Returns an hdulist in the same format as in a saved .uvfits file.
+           Args:
+                force_singlepol (str): if 'R' or 'L', will interpret stokes I field as 'RR' or 'LL'
+                polrep_out (str): 'circ' or 'stokes': how data should be stored in the uvfits file
+           Returns:
+                hdulist (astropy.io.fits.HDUList)
+        """
+
+        if (force_singlepol is not False) and (self.polrep != 'stokes'):
+            raise Exception(
+                "force_singlepol is incompatible with polrep!='stokes'")
+
+        hdulist = ehtim.io.save.save_obs_uvfits(self, None,
+                                                force_singlepol=force_singlepol, polrep_out=polrep_out)
+        return hdulist
+
 
     def save_oifits(self, fname, flux=1.0):
         """ Save visibility data to oifits. Polarization data is NOT saved.
@@ -4607,11 +4714,12 @@ def load_txt(fname, polrep='stokes'):
 
 
 def load_uvfits(fname, flipbl=False, remove_nan=False, force_singlepol=None,
-                channel=all, IF=all, polrep='stokes', allow_singlepol=True):
+                channel=all, IF=all, polrep='stokes', allow_singlepol=True,
+                trial_speedups=False):
     """Load observation data from a uvfits file.
 
        Args:
-           fname (str): path to input text file
+           fname (str or HDUList): path to input text file or HDUList object
            flipbl (bool): flip baseline phases if True.
            remove_nan (bool): True to remove nans from missing polarizations
            polrep (str): load data as either 'stokes' or 'circ'
@@ -4625,7 +4733,8 @@ def load_uvfits(fname, flipbl=False, remove_nan=False, force_singlepol=None,
 
     return ehtim.io.load.load_obs_uvfits(fname, flipbl=flipbl, force_singlepol=force_singlepol,
                                          channel=channel, IF=IF, polrep=polrep,
-                                         remove_nan=remove_nan, allow_singlepol=allow_singlepol)
+                                         remove_nan=remove_nan, allow_singlepol=allow_singlepol,
+                                         trial_speedups=trial_speedups)
 
 
 def load_oifits(fname, flux=1.0):

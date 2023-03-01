@@ -76,7 +76,7 @@ class Image(object):
            polrep (str): polarization representation, either 'stokes' or 'circ'
            pol_prim (str): The default image: I,Q,U or V for Stokes, or RR,LL,LR,RL for Circular
            _imdict (dict): The dictionary with the polarimetric images
-           _mflist (list): List of spectral index images (and higher order terms)f
+           _mflist (list): List of spectral index images (and higher order terms)
     """
 
     def __init__(self, image, psize, ra, dec, pa=0.0,
@@ -1061,7 +1061,7 @@ class Image(object):
         ij = np.array([[[i * self.psize + (self.psize * self.xdim) / 2.0 - self.psize / 2.0,
                          j * self.psize + (self.psize * self.ydim) / 2.0 - self.psize / 2.0]
                         for i in np.arange(0, -self.xdim, -1)]
-                       for j in np.arange(0, -self.ydim, -1)]).reshape((self.xdim * self.ydim, 2))
+                        for j in np.arange(0, -self.ydim, -1)]).reshape((self.xdim * self.ydim, 2))
 
         def im_new_val(imvec, x_idx, y_idx):
             x = x_idx * psize_new + (psize_new * xdim_new) / 2.0 - psize_new / 2.0
@@ -1077,7 +1077,7 @@ class Image(object):
 
         def im_new(imvec):
             imarr_new = np.array([[im_new_val(imvec, x_idx, y_idx)
-                                   for x_idx in np.arange(0, -xdim_new, -1)]
+                                  for x_idx in np.arange(0, -xdim_new, -1)]
                                   for y_idx in np.arange(0, -ydim_new, -1)])
             return imarr_new
 
@@ -1107,6 +1107,7 @@ class Image(object):
         # Interpolate spectral index and copy over
         mflist_out = []
         for mfvec in self._mflist:
+            print("WARNING: resample_squre not debugged for spectral index resampling!")
             if len(mfvec):
                 mfarr = im_new(mfvec)
                 mfvec_out = mfarr.flatten()
@@ -1140,7 +1141,7 @@ class Image(object):
         xtarget = np.linspace(-targetfov / 2, targetfov / 2, npix)
         ytarget = np.linspace(-targetfov / 2, targetfov / 2, npix)
 
-        def interp_imvec(imvec):
+        def interp_imvec(imvec, specind=False):
             if np.any(np.imag(imvec) != 0):
                 return interp_imvec(np.real(imvec)) + 1j * interp_imvec(np.imag(imvec))
 
@@ -1149,7 +1150,9 @@ class Image(object):
             tmpimg = interpfunc(ytarget, xtarget)
             tmpimg[np.abs(xtarget) > fov_x / 2., :] = 0.0
             tmpimg[:, np.abs(ytarget) > fov_y / 2.] = 0.0
-            tmpimg = tmpimg * (psize_new)**2 / self.psize**2
+
+            if not specind: # adjust pixel size if not a spectral index map
+                tmpimg = tmpimg * (psize_new)**2 / self.psize**2
             return tmpimg
 
         # Make new image
@@ -1173,7 +1176,7 @@ class Image(object):
         mflist_out = []
         for mfvec in self._mflist:
             if len(mfvec):
-                mfarr = interp_imvec(mfvec)
+                mfarr = interp_imvec(mfvec, specind=True)
                 mfvec_out = mfarr.flatten()
             else:
                 mfvec_out = np.array([])
@@ -1378,9 +1381,9 @@ class Image(object):
 
         def gaussim(blurfrac):
             gauss = np.array([[np.exp(-(j * cth + i * sth)**2 / (2 * (blurfrac * sigma_maj)**2) -
-                                       (i * cth - j * sth)**2 / (2. * (blurfrac * sigma_min)**2))
+                                       (i * cth - j * sth)**2 / (2 * (blurfrac * sigma_min)**2))
                                for i in xlist]
-                              for j in ylist])
+                               for j in ylist])
             gauss = gauss[0:self.ydim, 0:self.xdim]
             gauss = gauss / np.sum(gauss)  # normalize to 1
             return gauss
@@ -1395,7 +1398,7 @@ class Image(object):
             return imarr_blur
 
         # Convolve the primary image
-        imarr = (self.imvec).reshape(self.ydim, self.xdim)
+        imarr = (self.imvec).reshape(self.ydim, self.xdim).astype('float64')
         imarr_blur = blur(imarr, gauss)
 
         # Make new image object
@@ -1409,7 +1412,7 @@ class Image(object):
                 continue
             polvec = self._imdict[pol]
             if len(polvec):
-                polarr = polvec.reshape(self.ydim, self.xdim)
+                polarr = polvec.reshape(self.ydim, self.xdim).astype('float64')
                 if frac_pol:
                     polarr = blur(polarr, gausspol)
                 outim.add_pol_image(polarr, pol)
@@ -1418,7 +1421,7 @@ class Image(object):
         mflist_out = []
         for mfvec in self._mflist:
             if len(mfvec):
-                mfarr = mfvec.reshape(self.ydim, self.xdim)
+                mfarr = mfvec.reshape(self.ydim, self.xdim).astype('float64')
                 mfarr = blur(mfarr, gauss)
                 mfvec_out = mfarr.flatten()
             else:
@@ -1428,30 +1431,68 @@ class Image(object):
 
         return outim
 
-    def blur_circ(self, fwhm_i, fwhm_pol=0):
+    def blur_circ(self, fwhm_i, fwhm_pol=0, filttype='gauss'):
         """Apply a circular gaussian filter to the image, with FWHM in radians.
 
            Args:
                fwhm_i (float): circular beam size for Stokes I  blurring in  radian
                fwhm_pol (float): circular beam size for Stokes Q,U,V  blurring in  radian
-
+               filttype (str): "gauss" or "butter" 
+               
            Returns:
                (Image): output image
         """
 
         sigma = fwhm_i / (2. * np.sqrt(2. * np.log(2.)))
         sigmap = sigma / self.psize
-
+        fwhmp = fwhm_i / self.psize
+        fwhmp_pol = fwhm_pol / self.psize
+        
         # Define a convolution function
-        def blur(imarr, sigma):
+        def blur_gauss(imarr, fwhm):
+            sigma = fwhmp / (2. * np.sqrt(2. * np.log(2.)))
             if np.any(np.imag(imarr) != 0):
                 return blur(np.real(imarr), sigma) + 1j * blur(np.imag(imarr), sigma)
             imarr_blur = filt.gaussian_filter(imarr, (sigma, sigma))
             return imarr_blur
+            
+        def blur_butter(imarr, size):
 
+            #bfilt  = scipy.signal.butter(2,freq,btype='low',output='sos')
+            #if np.any(np.imag(imarr) != 0):
+            #    return blur(np.real(imarr), sigma) + 1j * blur(np.imag(imarr), sigma)
+                
+            #imarr_blur = scipy.signal.sosfilt(bfilt, imarr, axis=0)
+            #imarr_blur = scipy.signal.sosfilt(bfilt, imarr_blur, axis=1)            
+
+            if size==0:
+                return imarr
+            
+            cutoff = 1/size    
+            Nx = self.xdim
+            Ny = self.ydim
+
+            s, t = np.meshgrid(np.fft.fftfreq(Nx, d=1.0 ), np.fft.fftfreq(Ny, d=1.0 ))
+            #s, t = np.meshgrid(np.fft.fftfreq(Nx, d=1.0 / Nx), np.fft.fftfreq(Ny, d=1.0 / Ny))
+            r = np.sqrt(s**2 + t**2)
+            
+            bfilt = 1./np.sqrt(1 + (r/cutoff)**4)
+
+            imarr = self.imvec.reshape((Ny, Nx))
+            imarr_filt = np.real(np.fft.ifft2(np.fft.fft2(imarr) * bfilt))
+            return imarr_filt
+            
+            
+        if filttype=='gauss':
+            blur = blur_gauss
+        elif filttype=='butter':
+            blur = blur_butter
+        else:
+            raise Exception("filttype not recognized in blur_circ!")
+            
         # Blur the primary image
         imarr = self.imvec.reshape(self.ydim, self.xdim)
-        imarr_blur = blur(imarr, sigmap)
+        imarr_blur = blur(imarr, fwhmp)
 
         arglist, argdict = self.image_args()
         arglist[0] = imarr_blur
@@ -1462,14 +1503,14 @@ class Image(object):
         for mfvec in self._mflist:
             if len(mfvec):
                 mfarr = mfvec.reshape(self.ydim, self.xdim)
-                mfarr = blur(mfarr, sigmap)
+                mfarr = blur(mfarr, fwhmp)
                 mfvec_out = mfarr.flatten()
             else:
                 mfvec_out = np.array([])
             mflist_out.append(mfvec_out)
         outim._mflist = mflist_out
 
-        # Blur all polarizations and copy over
+        # Blur all polarizations and copy overi
         for pol in list(self._imdict.keys()):
             if pol == self.pol_prim:
                 continue
@@ -1477,15 +1518,57 @@ class Image(object):
             if len(polvec):
                 polarr = polvec.reshape(self.ydim, self.xdim)
                 if fwhm_pol:
-                    print("Blurring polarization")
-                    sigma = fwhm_pol / (2. * np.sqrt(2. * np.log(2.)))
-                    sigmap = sigma / self.psize
-                    polarr = blur(polarr, sigmap)
+                    #print("Blurring polarization")
+                    polarr = blur(polarr, fwhmp_pol)
                 outim.add_pol_image(polarr, pol)
 
 
         return outim
 
+    def blur_mf(self, freqs, fwhm, fit_order=1, filttype='gauss'):
+        """Blur image correctly across multiple frequencies
+           WARNING: does not currently do polarization correctly!
+
+           Args:
+               freqs (float): Frequencies to include in the blurring & spectral index fit
+               fwhm (float): circular beam size 
+               fit_order (int): how many orders to fit spectrum: 1 or 2
+               filttype (str): "gauss" or "butter" 
+               
+           Returns:
+               (Image): output image          
+           
+        """
+        if fit_order not in [1,2]: 
+            raise Exception("fit_order must be 1 or 2 in blur_mf!")
+           
+        reffreq = self.rf
+
+        # remove any zeros in the images               
+        imlist = [self.get_image_mf(rf).blur_circ(kernel, filttype=filttype) for rf in freqs]
+        for image in imlist:
+            image.imvec[image.imvec<=0] = np.min(image.imvec[image.imvec!=0])
+            
+        xfit = np.log(np.array(freqs)/reffreq)
+        yfit = np.log(np.array([im.imvec for im in imlist]))
+        
+        if fit_order == 2:
+            coeffs = np.polyfit(xfit,yfit,2)
+            beta = coeffs[0]
+            alpha = coeffs[1]    
+        elif fit_order == 1:
+            coeffs = np.polyfit(xfit,yfit,1)
+            alpha = coeffs[0]    
+            beta = 0*alpha
+        else:
+            alpha = 0*yfit
+            beta = 0*yfit
+            
+        outim = self.blur_circ(kernel, filttype=filttype)
+        outim.specvec = alpha
+        outim.curvvec = beta
+        return outim
+        
     def grad(self, gradtype='abs'):
         """Return the gradient image
 
@@ -1503,8 +1586,10 @@ class Image(object):
 
             imarr = imvec.reshape(self.ydim, self.xdim)
 
-            sx = ndi.sobel(imarr, axis=0, mode='constant')
-            sy = ndi.sobel(imarr, axis=1, mode='constant')
+            #sx = ndi.sobel(imarr, axis=0, mode='constant')
+            #sy = ndi.sobel(imarr, axis=1, mode='constant')
+            sx = ndi.sobel(imarr, axis=0, mode='nearest')
+            sy = ndi.sobel(imarr, axis=1, mode='nearest')
 
             # TODO: are these in the right order??
             if gradtype == 'x':
@@ -2226,7 +2311,7 @@ class Image(object):
         if polrep_obs not in ['stokes', 'circ']:
             raise Exception("polrep_obs must be either 'stokes' or 'circ'")
 
-        data = simobs.sample_vis(self, uv, polrep_obs=polrep_obs, sgrscat=sgrscat, 
+        data = simobs.sample_vis(self, uv, polrep_obs=polrep_obs, sgrscat=sgrscat,
                                  ttype=ttype, cache=cache, fft_pad_factor=fft_pad_factor,
                                  zero_empty_pol=zero_empty_pol, verbose=verbose)
         return data
@@ -2301,12 +2386,15 @@ class Image(object):
                      jones=False, inv_jones=False,
                      opacitycal=True, ampcal=True, phasecal=True,
                      frcal=True, dcal=True,  rlgaincal=True,
-                     stabilize_scan_phase=False, stabilize_scan_amp=False, 
+                     stabilize_scan_phase=False, stabilize_scan_amp=False,
                      neggains=False,
                      taup=ehc.GAINPDEF,
                      gain_offset=ehc.GAINPDEF, gainp=ehc.GAINPDEF,
+                     phase_std=-1,
                      dterm_offset=ehc.DTERMPDEF,
-                     caltable_path=None, seed=False, sigmat=None, verbose=True):
+                     rlratio_std=0., rlphase_std=0.,
+                     sigmat=None, phasesigmat=None, rlgsigmat=None,rlpsigmat=None,
+                     caltable_path=None, seed=False, verbose=True):
         """Observe the image on the same baselines as an existing observation object and add noise.
 
            Args:
@@ -2332,16 +2420,34 @@ class Image(object):
                neggains (bool): if True, force the applied gains to be <1
 
                taup (float): the fractional std. dev. of the random error on the opacities
-               gain_offset (float): the base gain offset at all sites,
-                                    or a dict giving one offset per site
                gainp (float): the fractional std. dev. of the random error on the gains
-               dterm_offset (float): the base dterm offset at all sites,
-                                     or a dict giving one dterm offset per site
+                              or a dict giving one std. dev. per site
+
+               gain_offset (float): the base gain offset at all sites,
+                                    or a dict giving one gain offset per site
+               phase_std (float): std. dev. of LCP phase,
+                                  or a dict giving one std. dev. per site
+                                  a negative value samples from uniform
+               dterm_offset (float): the base std. dev. of random additive error at all sites,
+                                    or a dict giving one std. dev. per site
+
+               rlratio_std (float): the fractional std. dev. of the R/L gain offset
+                                    or a dict giving one std. dev. per site
+               rlphase_std (float): std. dev. of R/L phase offset,
+                                    or a dict giving one std. dev. per site
+                                    a negative value samples from uniform
+
+               sigmat (float): temporal std for a Gaussian Process used to generate gains.
+                               If sigmat=None then an iid gain noise is applied.
+               phasesigmat (float): temporal std for a Gaussian Process used to generate phases.
+                                    If phasesigmat=None then an iid gain noise is applied.
+               rlgsigmat (float): temporal std deviation for a Gaussian Process used to generate R/L gain ratios.
+                               If rlgsigmat=None then an iid gain noise is applied.
+               rlpsigmat (float): temporal std deviation for a Gaussian Process used to generate R/L phase diff.
+                               If rlpsigmat=None then an iid gain noise is applied.
 
                caltable_path (string): If not None, path and prefix for saving the applied caltable
                seed (int): seeds the random component of the noise terms. DO NOT set to 0!
-               sigmat (float): temporal std for a Gaussian Process used to generate gain noise.
-                               if sigmat=None then an iid gain noise is applied.
                verbose (bool): print updates and warnings
            Returns:
                (Obsdata): an observation object
@@ -2350,7 +2456,7 @@ class Image(object):
         if seed:
             np.random.seed(seed=seed)
 
-        obs = self.observe_same_nonoise(obs_in, sgrscat=sgrscat,ttype=ttype, 
+        obs = self.observe_same_nonoise(obs_in, sgrscat=sgrscat,ttype=ttype,
                                         cache=False, fft_pad_factor=fft_pad_factor,
                                         zero_empty_pol=True, verbose=verbose)
 
@@ -2365,9 +2471,12 @@ class Image(object):
                                                  neggains=neggains,
                                                  taup=taup,
                                                  gain_offset=gain_offset, gainp=gainp,
+                                                 phase_std=phase_std,
                                                  dterm_offset=dterm_offset,
-                                                 caltable_path=caltable_path, seed=seed,
-                                                 sigmat=sigmat, verbose=verbose)
+                                                 rlratio_std=rlratio_std, rlphase_std=rlphase_std,
+                                                 sigmat=sigmat, phasesigmat=phasesigmat,
+                                                 rlgsigmat=rlgsigmat,rlpsigmat=rlpsigmat,
+                                                 caltable_path=caltable_path, seed=seed,verbose=verbose)
 
             obs = ehtim.obsdata.Obsdata(obs.ra, obs.dec, obs.rf, obs.bw, obsdata, obs.tarr,
                                         source=obs.source, mjd=obs.mjd, polrep=obs_in.polrep,
@@ -2394,13 +2503,16 @@ class Image(object):
             if caltable_path:
                 print('WARNING: the caltable is only saved if you apply noise with a Jones Matrix')
 
+            # TODO -- clean up arguments
             obsdata = simobs.add_noise(obs, add_th_noise=add_th_noise,
-                                       opacitycal=opacitycal, ampcal=ampcal, phasecal=phasecal, 
+                                       opacitycal=opacitycal, ampcal=ampcal, phasecal=phasecal,
                                        stabilize_scan_phase=stabilize_scan_phase,
                                        stabilize_scan_amp=stabilize_scan_amp,
                                        neggains=neggains,
-                                       taup=taup, gain_offset=gain_offset, gainp=gainp,
-                                       caltable_path=caltable_path, seed=seed, sigmat=sigmat,
+                                       taup=taup,
+                                       gain_offset=gain_offset, gainp=gainp,
+                                       sigmat=sigmat,
+                                       caltable_path=caltable_path, seed=seed,
                                        verbose=verbose)
 
             obs = ehtim.obsdata.Obsdata(obs.ra, obs.dec, obs.rf, obs.bw, obsdata, obs.tarr,
@@ -2414,7 +2526,8 @@ class Image(object):
     def observe(self, array, tint, tadv, tstart, tstop, bw,
                 mjd=None, timetype='UTC', polrep_obs=None,
                 elevmin=ehc.ELEV_LOW, elevmax=ehc.ELEV_HIGH,
-                ttype='nfft', fft_pad_factor=2, fix_theta_GMST=False, 
+                no_elevcut_space=False,                
+                ttype='nfft', fft_pad_factor=2, fix_theta_GMST=False,
                 sgrscat=False, add_th_noise=True,
                 jones=False, inv_jones=False,
                 opacitycal=True, ampcal=True, phasecal=True,
@@ -2422,9 +2535,12 @@ class Image(object):
                 stabilize_scan_phase=False, stabilize_scan_amp=False,
                 neggains=False,
                 tau=ehc.TAUDEF, taup=ehc.GAINPDEF,
-                gain_offset=ehc.GAINPDEF, gainp=ehc.GAINPDEF, 
-                dterm_offset=ehc.DTERMPDEF, 
-                caltable_path=None, seed=False, sigmat=None, verbose=True):
+                gain_offset=ehc.GAINPDEF, gainp=ehc.GAINPDEF,
+                phase_std=-1,
+                dterm_offset=ehc.DTERMPDEF,
+                rlratio_std=0.,rlphase_std=0.,
+                sigmat=None, phasesigmat=None, rlgsigmat=None,rlpsigmat=None,
+                caltable_path=None, seed=False, verbose=True):
         """Generate baselines from an array object and observe the image.
 
            Args:
@@ -2440,7 +2556,8 @@ class Image(object):
                polrep_obs (str): 'stokes' or 'circ' sets the data polarimetric representation
                elevmin (float): station minimum elevation in degrees
                elevmax (float): station maximum elevation in degrees
-
+               no_elevcut_space (bool): if True, do not apply elevation cut to orbiters
+           
                ttype (str): "fast", "nfft" or "dtft"
                fft_pad_factor (float): zero pad the image to fft_pad_factor * image size in the FFT
                fix_theta_GMST (bool): if True, stops earth rotation to sample fixed u,v
@@ -2462,19 +2579,37 @@ class Image(object):
                stabilize_scan_amp (bool): if True, random amplitude errors are constant over scans
                neggains (bool): if True, force the applied gains to be <1
 
-               tau (float): the base opacity at all sites,
-                            or a dict giving one opacity per site
                taup (float): the fractional std. dev. of the random error on the opacities
+               gainp (float): the fractional std. dev. of the random error on the gains
+                              or a dict giving one std. dev. per site
+
                gain_offset (float): the base gain offset at all sites,
                                     or a dict giving one gain offset per site
-               gainp (float): the fractional std. dev. of the random error on the gains
-               dterm_offset (float): the base dterm offset at all sites,
-                                     or a dict giving one dterm offset per site
+               phase_std (float): std. dev. of LCP phase,
+                                  or a dict giving one std. dev. per site
+                                  a negative value samples from uniform
+               dterm_offset (float): the base std. dev. of random additive error at all sites,
+                                    or a dict giving one std. dev. per site
+
+               rlratio_std (float): the fractional std. dev. of the R/L gain offset
+                                    or a dict giving one std. dev. per site
+               rlphase_std (float): std. dev. of R/L phase offset,
+                                    or a dict giving one std. dev. per site
+                                    a negative value samples from uniform
+
+               sigmat (float): temporal std for a Gaussian Process used to generate gains.
+                               If sigmat=None then an iid gain noise is applied.
+               phasesigmat (float): temporal std for a Gaussian Process used to generate phases.
+                                    If phasesigmat=None then an iid gain noise is applied.
+               rlgsigmat (float): temporal std deviation for a Gaussian Process used to generate R/L gain ratios.
+                               If rlgsigmat=None then an iid gain noise is applied.
+               rlpsigmat (float): temporal std deviation for a Gaussian Process used to generate R/L phase diff.
+                               If rlpsigmat=None then an iid gain noise is applied.
+
 
                caltable_path (string): If not None, path and prefix for saving the applied caltable
                seed (int): seeds the random component of the noise terms. DO NOT set to 0!
-               sigmat (float): temporal std for a Gaussian Process used to generate gain noise.
-                               if sigmat=None then an iid gain noise is applied.
+
                verbose (bool): print updates and warnings
 
            Returns:
@@ -2490,8 +2625,10 @@ class Image(object):
             polrep_obs = self.polrep
 
         obs = array.obsdata(self.ra, self.dec, self.rf, bw, tint, tadv, tstart, tstop, mjd=mjd,
-                            polrep=polrep_obs, tau=tau, timetype=timetype,
-                            elevmin=elevmin, elevmax=elevmax, fix_theta_GMST=fix_theta_GMST)
+                            polrep=polrep_obs, tau=tau, 
+                            elevmin=elevmin, elevmax=elevmax, 
+                            no_elevcut_space=no_elevcut_space,                            
+                            timetype=timetype, fix_theta_GMST=fix_theta_GMST)
 
         # Observe on the same baselines as the empty observation and add noise
         obs = self.observe_same(obs, ttype=ttype, fft_pad_factor=fft_pad_factor,
@@ -2504,10 +2641,13 @@ class Image(object):
                                 stabilize_scan_amp=stabilize_scan_amp,
                                 neggains=neggains,
                                 taup=taup,
-                                gain_offset=gain_offset, gainp=gainp, 
+                                gain_offset=gain_offset, gainp=gainp,
+                                phase_std=phase_std,
                                 dterm_offset=dterm_offset,
-                                caltable_path=caltable_path, seed=seed, sigmat=sigmat,
-                                verbose=verbose)
+                                rlratio_std=rlratio_std,rlphase_std=rlphase_std,
+                                sigmat=sigmat,phasesigmat=phasesigmat,
+                                rlgsigmat=rlgsigmat,rlpsigmat=rlpsigmat,
+                                caltable_path=caltable_path, seed=seed, verbose=verbose)
 
         obs.mjd = mjd
 
@@ -2515,7 +2655,7 @@ class Image(object):
 
     def observe_vex(self, vex, source, t_int=0.0, tight_tadv=False,
                     polrep_obs=None, ttype='nfft', fft_pad_factor=2,
-                    fix_theta_GMST=False, 
+                    fix_theta_GMST=False,
                     sgrscat=False, add_th_noise=True,
                     jones=False, inv_jones=False,
                     opacitycal=True, ampcal=True, phasecal=True,
@@ -2523,9 +2663,12 @@ class Image(object):
                     stabilize_scan_phase=False, stabilize_scan_amp=False,
                     neggains=False,
                     tau=ehc.TAUDEF, taup=ehc.GAINPDEF,
-                    gain_offset=ehc.GAINPDEF, gainp=ehc.GAINPDEF, 
+                    gain_offset=ehc.GAINPDEF, gainp=ehc.GAINPDEF,
+                    phase_std=-1,
                     dterm_offset=ehc.DTERMPDEF,
-                    caltable_path=None, seed=False, sigmat=None, verbose=True):
+                    rlratio_std=0.,rlphase_std=0.,
+                    sigmat=None, phasesigmat=None, rlgsigmat=None,rlpsigmat=None,
+                    caltable_path=None, seed=False, verbose=True):
         """Generate baselines from a vex file and observes the image.
 
            Args:
@@ -2560,16 +2703,34 @@ class Image(object):
                tau (float): the base opacity at all sites,
                             or a dict giving one opacity per site
                taup (float): the fractional std. dev. of the random error on the opacities
+               gainp (float): the fractional std. dev. of the random error on the gains
+                              or a dict giving one std. dev. per site
+
                gain_offset (float): the base gain offset at all sites,
                                     or a dict giving one gain offset per site
-               gainp (float): the fractional std. dev. of the random error on the gains
-               dterm_offset (float): the base dterm offset at all sites,
-                                     or a dict giving one dterm offset per site
+               phase_std (float): std. dev. of LCP phase,
+                                  or a dict giving one std. dev. per site
+                                  a negative value samples from uniform
+               dterm_offset (float): the base std. dev. of random additive error at all sites,
+                                    or a dict giving one std. dev. per site
+
+               rlratio_std (float): the fractional std. dev. of the R/L gain offset
+                                    or a dict giving one std. dev. per site
+               rlphase_std (float): std. dev. of R/L phase offset,
+                                    or a dict giving one std. dev. per site
+                                    a negative value samples from uniform
+
+               sigmat (float): temporal std for a Gaussian Process used to generate gains.
+                               If sigmat=None then an iid gain noise is applied.
+               phasesigmat (float): temporal std for a Gaussian Process used to generate phases.
+                                    If phasesigmat=None then an iid gain noise is applied.
+               rlgsigmat (float): temporal std deviation for a Gaussian Process used to generate R/L gain ratios.
+                               If rlgsigmat=None then an iid gain noise is applied.
+               rlpsigmat (float): temporal std deviation for a Gaussian Process used to generate R/L phase diff.
+                               If rlpsigmat=None then an iid gain noise is applied.
 
                caltable_path (string): If not None, path and prefix for saving the applied caltable
                seed (int): seeds the random component of the noise terms. DO NOT set to 0!
-               sigmat (float): temporal std for a Gaussian Process used to generate gain noise.
-                               if sigmat=None then an iid gain noise is applied.
                verbose (bool): print updates and warnings
 
            Returns:
@@ -2613,10 +2774,10 @@ class Image(object):
                                polrep_obs=polrep_obs,
                                elevmin=.01, elevmax=89.99,
                                ttype=ttype, fft_pad_factor=fft_pad_factor,
-                               fix_theta_GMST=fix_theta_GMST, 
+                               fix_theta_GMST=fix_theta_GMST,
                                sgrscat=sgrscat,
                                add_th_noise=add_th_noise,
-                               jones=jones, inv_jones=inv_jones, 
+                               jones=jones, inv_jones=inv_jones,
                                opacitycal=opacitycal, ampcal=ampcal, phasecal=phasecal,
                                frcal=frcal, dcal=dcal, rlgaincal=rlgaincal,
                                stabilize_scan_phase=stabilize_scan_phase,
@@ -2624,9 +2785,12 @@ class Image(object):
                                neggains=neggains,
                                tau=tau, taup=taup,
                                gain_offset=gain_offset, gainp=gainp,
+                               phase_std=phase_std,
                                dterm_offset=dterm_offset,
-                               caltable_path=caltable_path, seed=seed,sigmat=sigmat,
-                               verbose=verbose)
+                               rlratio_std=rlratio_std,rlphase_std=rlphase_std,
+                               sigmat=sigmat,phasesigmat=phasesigmat,
+                               rlgsigmat=rlgsigmat,rlpsigmat=rlpsigmat,
+                               caltable_path=caltable_path, seed=seed, verbose=verbose)
 
             obs_List.append(obs)
 
@@ -2879,7 +3043,6 @@ class Image(object):
         meanval = np.mean(im.imvec)
 
         im_norm = im.imvec / (maxval + .01 * meanval)
-        im_norm = im_norm
         im_norm = im_norm.astype('float')  # is it a problem if it's double??
         im_norm[np.isnan(im.imvec)] = 0  # mask nans to 0
         im.imvec = im_norm
@@ -3193,12 +3356,15 @@ class Image(object):
                 export_pdf="", pdf_pad_inches=0.0, show=True, beamparams=None,
                 cbar_orientation="vertical", scinot=False,
                 scale_lw=1, beam_lw=1, cbar_fontsize=12, axis=None,
-                scale_fontsize=12, power=0, beamcolor='w', dpi=500):
+                scale_fontsize=12, 
+                power=0, 
+                beamcolor='w', beampos='right', scalecolor='w',dpi=500):
         """Display the image.
 
            Args:
                pol (str): which polarization image to plot. Default is self.pol_prim
-                          pol='spec' will plot spectral index!
+                          pol='spec' will plot spectral index
+                          pol='curv' will plot spectral curvature
                cfun (str): matplotlib.pyplot color function.
                            False changes with 'pol',  but is 'afmhot' for most
                interp (str): image interpolation 'gauss' or 'lin'
@@ -3210,7 +3376,7 @@ class Image(object):
                plotp (bool): True to plot linear polarimetic image
                plot_stokes (bool): True to plot stokes subplots along with plotp
                nvec (int): number of polarimetric vectors to plot
-               vec_cfun (str): color function for vectors colored by |m|
+               vec_cfun (str): color function for vectors colored by lin pol frac
 
                scut (float): minimum stokes I value for displaying spectral index
                pcut (float): minimum stokes I value for displaying polarimetric vectors
@@ -3232,9 +3398,10 @@ class Image(object):
                cbar_fontsize (float): Fontsize of the text elements of the colorbar
                axis (matplotlib.axes.Axes): An axis object
                scale_fontsize (float): Fontsize of the scale label
+
                power (float): Passed to colorbar for division of ticks by 1e(power)
                beamcolor (str): color of the beam overlay
-
+               scalecolor (str): color of the scale label overlay            
            Returns:
                (matplotlib.figure.Figure): figure object with image
 
@@ -3346,9 +3513,20 @@ class Image(object):
 
                 # mask out low total intensity values
                 mask = self.imvec < (scut * np.max(self.imvec))
-                imvec[mask] = 0
+                imvec[mask] = np.nan
 
                 unit = r'$\alpha$'
+                factor = 1
+                cbar_lims_p = [-5, 5]
+                cfun_p = 'seismic'
+            elif pol.lower() == 'curv':
+                imvec = self.curvvec.copy()
+
+                # mask out low total intensity values
+                mask = self.imvec < (scut * np.max(self.imvec))
+                imvec[mask] = np.nan
+
+                unit = r'$\beta$'
                 factor = 1
                 cbar_lims_p = [-5, 5]
                 cfun_p = 'seismic'
@@ -3436,16 +3614,22 @@ class Image(object):
 
             if not cfun:
                 cfun = cfun_p
+            cmap = plt.get_cmap(cfun)
+            cmap.set_bad(color='whitesmoke')
 
             if cbar_lims:
-                im = plt.imshow(imarr, alpha=alpha, cmap=plt.get_cmap(cfun), interpolation=interp,
+                im = plt.imshow(imarr, alpha=alpha, cmap=cmap, interpolation=interp,
                                 vmin=cbar_lims[0], vmax=cbar_lims[1])
             else:
-                im = plt.imshow(imarr, alpha=alpha, cmap=plt.get_cmap(cfun), interpolation=interp)
+                im = plt.imshow(imarr, alpha=alpha, cmap=cmap, interpolation=interp)
 
             if not(beamparams is None or beamparams is False):
-                beamparams = [beamparams[0], beamparams[1], beamparams[2],
-                              -.35 * self.fovx(), -.35 * self.fovy()]
+                if beampos=='left':
+                    beamparams = [beamparams[0], beamparams[1], beamparams[2],
+                                  +.4 * self.fovx(), -.4 * self.fovy()]
+                else:
+                    beamparams = [beamparams[0], beamparams[1], beamparams[2],
+                                  -.35 * self.fovx(), -.35 * self.fovy()]                              
                 beamimage = self.copy()
                 beamimage.imvec *= 0
                 beamimage = beamimage.add_gauss(1, beamparams)
@@ -3539,28 +3723,19 @@ class Image(object):
             a = (-np.sin(np.angle(qvec + 1j * uvec) /
                          2).reshape(self.ydim, self.xdim)[::thin, ::thin])
             a = a[mask2]
-            b = (
-                np.cos(
-                    np.angle(
-                        qvec +
-                        1j *
-                        uvec) /
-                    2).reshape(
-                    self.ydim,
-                    self.xdim)[
-                    ::thin,
-                    ::thin])
+            b = (np.cos(np.angle(qvec + 1j * uvec) /
+                        2).reshape(self.ydim, self.xdim)[::thin, ::thin])
             b = b[mask2]
 
             m = (np.abs(qvec + 1j * uvec) / imvec).reshape(self.ydim, self.xdim)
             p = (np.abs(qvec + 1j * uvec)).reshape(self.ydim, self.xdim)
-            m[np.logical_not(mask)] = 0
-            p[np.logical_not(mask)] = 0
-            qarr[np.logical_not(mask)] = 0
-            uarr[np.logical_not(mask)] = 0
+            m[np.logical_not(mask)] = np.nan
+            p[np.logical_not(mask)] = np.nan
+            qarr[np.logical_not(mask)] = np.nan
+            uarr[np.logical_not(mask)] = np.nan
 
             voi = (vvec / imvec).reshape(self.ydim, self.xdim)
-            voi[np.logical_not(mask)] = 0
+            voi[np.logical_not(mask)] = np.nan
 
             # Little pol plots
             if plot_stokes:
@@ -3587,9 +3762,11 @@ class Image(object):
                     if cbar_lims:
                         plt.clim(-maxval, maxval)
 
+                cmap = plt.get_cmap('bwr')
+                cmap.set_bad('whitesmoke')
                 # V Plot
                 ax = plt.subplot2grid((2, 5), (0, 1))
-                plt.imshow(varr, cmap=plt.get_cmap('bwr'), interpolation=interp,
+                plt.imshow(varr, cmap=cmap, interpolation=interp,
                            vmin=-maxval, vmax=maxval)
                 ax.set_xticks([])
                 ax.set_yticks([])
@@ -3598,7 +3775,7 @@ class Image(object):
 
                 # Q Plot
                 ax = plt.subplot2grid((2, 5), (1, 0))
-                plt.imshow(qarr, cmap=plt.get_cmap('bwr'), interpolation=interp,
+                plt.imshow(qarr, cmap=cmap, interpolation=interp,
                            vmin=-maxval, vmax=maxval)
                 plt.contour(imarr, colors='k', linewidths=.25)
                 ax.set_xticks([])
@@ -3608,7 +3785,7 @@ class Image(object):
 
                 # U Plot
                 ax = plt.subplot2grid((2, 5), (1, 1))
-                plt.imshow(uarr, cmap=plt.get_cmap('bwr'), interpolation=interp,
+                plt.imshow(uarr, cmap=cmap, interpolation=interp,
                            vmin=-maxval, vmax=maxval)
                 plt.contour(imarr, colors='k', linewidths=.25)
                 ax.set_xticks([])
@@ -3618,7 +3795,10 @@ class Image(object):
 
                 # V/I plot
                 ax = plt.subplot2grid((2, 5), (0, 2))
-                im = plt.imshow(voi, cmap=plt.get_cmap('seismic'), interpolation=interp,
+                cmap = plt.get_cmap('seismic')
+                cmap.set_bad('whitesmoke')
+
+                im = plt.imshow(voi, cmap=cmap, interpolation=interp,
                                 vmin=-1, vmax=1)
                 if has_title:
                     plt.title('V/I')
@@ -3660,13 +3840,15 @@ class Image(object):
 
             if not cfun:
                 cfun = 'afmhot'
+            cmap = plt.get_cmap(cfun)
+            cmap.set_bad(color='whitesmoke')
 
             # Big Stokes I plot
             if cbar_lims:
-                im = plt.imshow(imarr2, cmap=plt.get_cmap(cfun), interpolation=interp,
+                im = plt.imshow(imarr2, cmap=cmap, interpolation=interp,
                                 vmin=cbar_lims[0], vmax=cbar_lims[1])
             else:
-                im = plt.imshow(imarr2, cmap=plt.get_cmap(cfun), interpolation=interp)
+                im = plt.imshow(imarr2, cmap, interpolation=interp)
 
             if vec_cfun is None:
                 plt.quiver(x, y, a, b,
@@ -3741,9 +3923,9 @@ class Image(object):
             start = self.xdim * roughfactor / 3.0  # select the start location
             end = start + fov_scale / fov_uas * self.xdim  # determine the end location
             plt.plot([start, end], [self.ydim - start - 5, self.ydim - start - 5],
-                     color="white", lw=scale_lw)  # plot a line
+                     color=scalecolor, lw=scale_lw)  # plot a line
             plt.text(x=(start + end) / 2.0, y=self.ydim - start + self.ydim / 30,
-                     s=str(fov_scale) + r" $\mu$as", color="white",
+                     s=str(fov_scale) + r" $\mu$as", color=scalecolor,
                      ha="center", va="center", fontsize=scale_fontsize)
             ax = plt.gca()
             if axis is None:
@@ -4039,3 +4221,99 @@ def load_fits(fname, aipscc=False, pulse=ehc.PULSE_DEFAULT,
 
     return ehtim.io.load.load_im_fits(fname, aipscc=aipscc, pulse=pulse,
                                       polrep=polrep, pol_prim=pol_prim, zero_pol=zero_pol)
+                                      
+def avg_imlist(imlist):
+    """Average a list of images.
+
+       Args:
+           imlist (list): list of image objects
+
+       Returns:
+           (Image): average image object
+    """
+    
+    imavg = imlist[0]
+
+    if np.any(np.array([im.polrep for im in imlist]) != imavg.polrep):
+        raise Exception("im.polrep in all images are not the same in avg_imlist!")
+    if np.any(np.array([im.source for im in imlist]) != imavg.source):
+        raise Exception("im.source in all images are not the same in avg_imlist!")
+    if np.any(np.array([im.rf for im in imlist]) != imavg.rf):
+        raise Exception("im.rf in all images are not the same in avg_imlist!")
+           
+    keys = imavg._imdict.keys()
+                
+    for im in imlist[1:]:
+        for key in keys:
+            imavg._imdict[key] += im._imdict[key]
+
+    for key in keys:
+        imavg._imdict[key] /= float(len(imlist))
+
+    
+    return imavg
+
+def get_specim(imlist, reffreq, fit_order=2):
+    """get the spectral index/curvature from a list of images"""
+    freqs = [im.rf for im in imlist]
+
+    # remove any zeros in the images
+    for im in imlist:
+        im.imvec[im.imvec<=0] = np.min(im.imvec[im.imvec!=0])
+    
+    # fit
+    xfit = np.log(np.array(freqs)/reffreq)
+    yfit = np.log(np.array([im.imvec for im in imlist]))
+
+    if fit_order == 2:
+        coeffs = np.polyfit(xfit,yfit,2)
+        beta = coeffs[0]
+        alpha = coeffs[1] 
+        imvec = np.exp(coeffs[2])   
+    elif fit_order == 1:
+        coeffs = np.polyfit(xfit,yfit,1)
+        alpha = coeffs[0]    
+        beta = 0*alpha
+        imvec = np.exp(coeffs[1])
+    else:
+        raise Exception()
+        
+    outim = imlist[0].copy() #TODO no polarization
+    outim.imvec = imvec
+    outim.rf = reffreq
+    outim.specvec = alpha
+    outim.curvvec = beta
+    
+    return outim
+
+
+def blur_mf(im,freqs,kernel,fit_order=2):
+    """blur multifrequncy images with the same beam"""
+    reffreq = im.rf
+
+    # remove any zeros in the images
+
+           
+    imlist = [im.get_image_mf(rf).blur_circ(kernel) for rf in freqs]
+    for image in imlist:
+        image.imvec[image.imvec<=0] = np.min(image.imvec[image.imvec!=0])
+        
+    xfit = np.log(np.array(freqs)/reffreq)
+    yfit = np.log(np.array([im.imvec for im in imlist]))
+    
+    if fit_order == 2:
+        coeffs = np.polyfit(xfit,yfit,2)
+        beta = coeffs[0]
+        alpha = coeffs[1]    
+    elif fit_order == 1:
+        coeffs = np.polyfit(xfit,yfit,1)
+        alpha = coeffs[0]    
+        beta = 0*alpha
+    else:
+        alpha = 0*yfit
+        beta = 0*yfit
+        
+    outim = im.blur_circ(kernel)
+    outim.specvec = alpha
+    outim.curvvec = beta
+    return outim

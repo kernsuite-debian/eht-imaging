@@ -41,7 +41,7 @@ from ehtim.const_def import *
 from ehtim.observing.obs_helpers import *
 from ehtim.statistics.dataframes import *
 
-NORM_REGULARIZER = True 
+NORM_REGULARIZER = True
 EPSILON = 1.e-12
 
 ##################################################################################################
@@ -55,9 +55,9 @@ def regularizer_mf(imvec, nprior, mask, flux, xdim, ydim, psize, stype, **kwargs
     norm_reg = kwargs.get('norm_reg', NORM_REGULARIZER)
     beam_size = kwargs.get('beam_size', psize)
 
-    if stype == "l2_alpha":
-        s = -l2_alpha(imvec, nprior)
-    elif stype == "tv_alpha":
+    if stype == "l2_alpha" or stype=="l2_beta":
+        s = -l2_alpha(imvec, nprior, norm_reg=norm_reg)
+    elif stype == "tv_alpha" or stype=="tv_beta":
         if np.any(np.invert(mask)):
             imvec = embed(imvec, mask, randomfloor=False)
         s = -tv_alpha(imvec, xdim, ydim, psize, norm_reg=norm_reg, beam_size=beam_size)
@@ -73,9 +73,9 @@ def regularizergrad_mf(imvec, nprior, mask, flux, xdim, ydim, psize, stype, **kw
     norm_reg = kwargs.get('norm_reg', NORM_REGULARIZER)
     beam_size = kwargs.get('beam_size', psize)
 
-    if stype == "l2_alpha":
+    if stype == "l2_alpha" or stype=="l2_beta":
         s = -l2_alpha_grad(imvec, nprior)
-    elif stype == "tv_alpha":
+    elif stype == "tv_alpha" or stype=="tv_beta":
         if np.any(np.invert(mask)):
             imvec = embed(imvec, mask, randomfloor=False)
         s = -tv_alpha_grad(imvec, xdim, ydim, psize, norm_reg=norm_reg, beam_size=beam_size)
@@ -86,19 +86,27 @@ def regularizergrad_mf(imvec, nprior, mask, flux, xdim, ydim, psize, stype, **kw
     return s
 
 
-def l2_alpha(imvec, priorvec):
+def l2_alpha(imvec, priorvec, norm_reg=NORM_REGULARIZER):
     """L2 norm on spectral index w/r/t prior
     """
-
-    norm = float(len(imvec))
+    
+    if norm_reg:
+        norm = float(len(imvec))
+    else:
+        norm = 1
+        
     out = -(np.sum((imvec - priorvec)**2))
     return out/norm
 
-def l2_alpha_grad(imvec, priorvec):
+def l2_alpha_grad(imvec, priorvec, norm_reg=NORM_REGULARIZER):
     """L2 norm on spectral index w/r/t prior
     """
 
-    norm = float(len(imvec))
+    if norm_reg:
+        norm = float(len(imvec))
+    else:
+        norm = 1
+        
     out = -2*(np.sum(imvec - priorvec))*np.ones(len(imvec))
     return out/norm
 
@@ -107,8 +115,10 @@ def tv_alpha(imvec, nx, ny, psize, norm_reg=NORM_REGULARIZER, beam_size=None):
     """Total variation regularizer
     """
     if beam_size is None: beam_size = psize
-    if norm_reg: norm = psize / beam_size
-    else: norm = 1
+    if norm_reg: 
+        norm = len(imvec)*psize / beam_size
+    else: 
+        norm = 1
 
     im = imvec.reshape(ny, nx)
     impad = np.pad(im, 1, mode='constant', constant_values=0)
@@ -122,8 +132,10 @@ def tv_alpha_grad(imvec, nx, ny, psize, norm_reg=NORM_REGULARIZER, beam_size=Non
     """Total variation gradient
     """
     if beam_size is None: beam_size = psize
-    if norm_reg: norm = psize / beam_size
-    else: norm = 1
+    if norm_reg: 
+        norm = len(imvec)*psize / beam_size
+    else: 
+        norm = 1
 
     im = imvec.reshape(ny,nx)
     impad = np.pad(im, 1, mode='constant', constant_values=0)
@@ -157,7 +169,7 @@ def tv_alpha_grad(imvec, nx, ny, psize, norm_reg=NORM_REGULARIZER, beam_size=Non
 
 ##################################################################################################
 def unpack_mftuple(imvec, inittuple, nimage, mf_solve = (1,1,0)):
-        """unpack imvec into tuple, 
+        """unpack imvec into tuple,
            replaces quantities not iterated with their initial values
         """
         init0 = inittuple[0]
@@ -184,8 +196,8 @@ def unpack_mftuple(imvec, inittuple, nimage, mf_solve = (1,1,0)):
             imct += 1
         return np.array((im0, im1, im2))
 
-def pack_mftuple(mftuple, mf_solve = (1,1,0)):       
-        """pack multifreq data into image vector, 
+def pack_mftuple(mftuple, mf_solve = (1,1,0)):
+        """pack multifreq data into image vector,
            ignore quantities not iterated
         """
 
@@ -224,12 +236,12 @@ def embed_mf(imtuple, mask, clipfloor=0., randomfloor=False):
     out1=np.zeros(len(mask))
     out2=np.zeros(len(mask))
 
-    # Here's a much faster version than before 
+    # Here's a much faster version than before
     out0[mask.nonzero()] = imtuple[0]
     out1[mask.nonzero()] = imtuple[1]
     out2[mask.nonzero()] = imtuple[2]
 
-    if clipfloor != 0.0:       
+    if clipfloor != 0.0:
         if randomfloor: # prevent total variation gradient singularities
             out0[(mask-1).nonzero()] = clipfloor * np.abs(np.random.normal(size=len((mask-1).nonzero())))
             out1[(mask-1).nonzero()] = clipfloor * np.abs(np.random.normal(size=len((mask-1).nonzero())))
@@ -253,14 +265,13 @@ def imvec_at_freq(mftuple, log_freqratio):
         imvec = np.exp(logimvec)
         return imvec
 
-def mf_all_chisqgrads(chi2grad, imvec_cur, imvec_ref, log_freqratio):
+def mf_all_grads_chain(funcgrad, imvec_cur, imvec_ref, log_freqratio):
         """Get the gradients of the reference image, spectral index, and curvature
-           w/r/t the gradient of the chi^2 at a given frequency ref_freq*e(log_freqratio)
+           w/r/t the gradient of a function funcgrad to the image given frequency ref_freq*e(log_freqratio)
         """
 
-        dchisq_dI0 = chi2grad * imvec_cur / imvec_ref 
-        dchisq_dalpha = chi2grad * imvec_cur * log_freqratio
-        dchisq_dbeta = dchisq_dalpha * log_freqratio
-        
-        return np.array((dchisq_dI0, dchisq_dalpha, dchisq_dbeta))
+        dfunc_dI0    = funcgrad * imvec_cur / imvec_ref
+        dfunc_dalpha = funcgrad * imvec_cur * log_freqratio
+        dfunc_dbeta  = funcgrad * imvec_cur * log_freqratio * log_freqratio
 
+        return np.array((dfunc_dI0, dfunc_dalpha, dfunc_dbeta))
