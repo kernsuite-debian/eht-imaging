@@ -15,7 +15,7 @@ Build-Depends:
  python3-numpy,
  python3-networkx,
  python3-pil.imagetk,
- python3-requests
+ python3-requests,
  python3-scipy,
  python3-setuptools,
  python3-skimage
