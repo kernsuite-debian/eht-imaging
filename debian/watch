@@ -1,2 +1,4 @@
 version=4
-https://github.com/achael/eht-imaging/releases /achael/eht-imaging/archive/v(\d[\.\d]+).tar.gz
+opts="filenamemangle=s%(?:.*?)?v?(\d[\d.]*@ARCHIVE_EXT@)%@PACKAGE@-$1%" \
+      https://github.com/achael/eht-imaging/tags \
+      (?:.*?/)?v?@ANY_VERSION@@ARCHIVE_EXT@
