@@ -3,7 +3,7 @@ Section: science
 Priority: extra
 Maintainer: KERN packaging <packaging@kernsuite.info>
 Build-Depends:
- debhelper (>= 10),
+ debhelper (>= 11),
  dh-python,
  python3-all,
  python3-astropy,
@@ -18,9 +18,9 @@ Build-Depends:
  python3-scipy,
  python3-setuptools,
  python3-skimage
-Standards-Version: 4.5.0
+Standards-Version: 4.6.1
 Homepage: https://github.com/achael/eht-imaging
-X-Python3-Version: >= 3.4
+X-Python3-Version: >= 3.8
 
 Package: python3-eht-imaging
 Architecture: any
@@ -30,7 +30,8 @@ Depends:
  ${python3:Depends},
  ${misc:Depends},
  python3-pandas,
- python3-pynfft
+ python3-pynfft,
+ python3-request
 Provides: ${python3:Provides}
 Description: Python modules for simulating and manipulating VLBI data
  and producing images with regularized maximum likelihood methods.

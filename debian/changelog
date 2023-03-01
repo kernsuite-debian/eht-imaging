@@ -1,3 +1,10 @@
+eht-imaging (1.2.5-1kern1) focal; urgency=medium
+
+  [ Athanaseus Javas Ramaila ]
+  * New upstream version 1.2.5
+
+ -- KERN packaging <packaging@kernsuite.info>  Wed, 01 Mar 2023 13:03:26 +0000
+
 eht-imaging (1.2.2-1kern1) focal; urgency=medium
 
   [ Athanaseus Javas Ramaila ]
