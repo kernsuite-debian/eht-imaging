@@ -15,6 +15,7 @@ Build-Depends:
  python3-numpy,
  python3-networkx,
  python3-pil.imagetk,
+ python3-requests
  python3-scipy,
  python3-setuptools,
  python3-skimage
@@ -30,8 +31,7 @@ Depends:
  ${python3:Depends},
  ${misc:Depends},
  python3-pandas,
- python3-pynfft,
- python3-request
+ python3-pynfft
 Provides: ${python3:Provides}
 Description: Python modules for simulating and manipulating VLBI data
  and producing images with regularized maximum likelihood methods.

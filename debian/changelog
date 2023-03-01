@@ -1,3 +1,10 @@
+eht-imaging (1.2.5-1kern2) focal; urgency=medium
+
+  [ Athanaseus Javas Ramaila ]
+  * Add dependency python3-requests
+
+ -- KERN packaging <packaging@kernsuite.info>  Wed, 01 Mar 2023 13:42:02 +0000
+
 eht-imaging (1.2.5-1kern1) focal; urgency=medium
 
   [ Athanaseus Javas Ramaila ]
