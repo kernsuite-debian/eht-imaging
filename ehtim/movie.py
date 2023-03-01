@@ -396,7 +396,8 @@ class Movie(object):
         """
 
         frames2D = self.frames.reshape((self.nframes, self.ydim, self.xdim))
-        arglist = [frames2D, self.times, self.psize, self.ra,  self.dec]
+        arglist = [frames2D.copy(), self.times.copy(), self.psize, self.ra,  self.dec]
+        #arglist = [frames2D, self.times, self.psize, self.ra,  self.dec]
         argdict = {'rf': self.rf, 'polrep': self.polrep,  'pol_prim': self.pol_prim,
                    'pulse': self.pulse, 'source': self.source,
                    'mjd': self.mjd, 'interp': self.interp, 'bounds_error': self.bounds_error}
@@ -472,7 +473,7 @@ class Movie(object):
         return mov
 
     def add_pol_movie(self, movie, pol):
-        """Add another movie polarization. f
+        """Add another movie polarization. 
 
            Args:
                movie (list): list of 2D frames (possibly complex) in a Jy/pixel array
@@ -1109,6 +1110,7 @@ class Movie(object):
                      taup=ehc.GAINPDEF,
                      gain_offset=ehc.GAINPDEF, gainp=ehc.GAINPDEF, 
                      dterm_offset=ehc.DTERMPDEF,
+                     rlratio_std=0.,rlphase_std=0.,
                      caltable_path=None, seed=False, sigmat=None, verbose=True):
         """Observe the image on the same baselines as an existing observation object and add noise.
 
@@ -1135,12 +1137,20 @@ class Movie(object):
                neggains (bool): if True, force the applied gains to be <1
 
                taup (float): the fractional std. dev. of the random error on the opacities
-               gain_offset (float): the base gain offset at all sites,
-                                    or a dict giving one offset per site
                gainp (float): the fractional std. dev. of the random error on the gains
-               dterm_offset (float): the base dterm offset at all sites,
-                                     or a dict giving one dterm offset per site
+                              or a dict giving one std. dev. per site      
 
+               gain_offset (float): the base gain offset at all sites,
+                                    or a dict giving one gain offset per site
+               dterm_offset (float): the base std. dev. of random additive error at all sites,
+                                    or a dict giving one std. dev. per site
+
+               rlratio_std (float): the fractional std. dev. of the R/L gain offset
+                                    or a dict giving one std. dev. per site                                          
+               rlphase_std (float): std. dev. of R/L phase offset, 
+                                    or a dict giving one std. dev. per site
+                                    a negative value samples from uniform                                          
+                                    
                caltable_path (string): If not None, path and prefix for saving the applied caltable
                seed (int): seeds the random component of the noise terms. DO NOT set to 0!
                sigmat (float): temporal std for a Gaussian Process used to generate gain noise.
@@ -1162,7 +1172,6 @@ class Movie(object):
 
         # Jones Matrix Corruption & Calibration
         if jones:
-            print("Applying Jones Matrices to data . . . ")
             obsdata = simobs.add_jones_and_noise(obs, add_th_noise=add_th_noise,
                                                  opacitycal=opacitycal, ampcal=ampcal,
                                                  phasecal=phasecal, frcal=frcal, dcal=dcal,
@@ -1173,6 +1182,7 @@ class Movie(object):
                                                  taup=taup,
                                                  gain_offset=gain_offset, gainp=gainp,
                                                  dterm_offset=dterm_offset,
+                                                 rlratio_std=rlratio_std, rlphase_std=rlphase_std,
                                                  caltable_path=caltable_path,
                                                  seed=seed, sigmat=sigmat, verbose=verbose)
 
@@ -1220,6 +1230,7 @@ class Movie(object):
     def observe(self, array, tint, tadv, tstart, tstop, bw, repeat=False,
                 mjd=None, timetype='UTC', polrep_obs=None,
                 elevmin=ehc.ELEV_LOW, elevmax=ehc.ELEV_HIGH,
+                no_elevcut_space=False,
                 ttype='nfft', fft_pad_factor=2, fix_theta_GMST=False,
                 sgrscat=False, add_th_noise=True,
                 jones=False, inv_jones=False,
@@ -1230,6 +1241,7 @@ class Movie(object):
                 tau=ehc.TAUDEF, taup=ehc.GAINPDEF,
                 gain_offset=ehc.GAINPDEF, gainp=ehc.GAINPDEF, 
                 dterm_offset=ehc.DTERMPDEF,
+                rlratio_std=0.,rlphase_std=0.,
                 caltable_path=None, seed=False, sigmat=None, verbose=True):
         """Generate baselines from an array object and observe the movie.
 
@@ -1247,7 +1259,8 @@ class Movie(object):
                polrep_obs (str): 'stokes' or 'circ' sets the data polarimetric representation
                elevmin (float): station minimum elevation in degrees
                elevmax (float): station maximum elevation in degrees
-
+               no_elevcut_space (bool): if True, do not apply elevation cut to orbiters
+           
                ttype (str): "fast", "nfft" or "dtft"
                fft_pad_factor (float): zero pad the image to fft_pad_factor * image size in the FFT
                fix_theta_GMST (bool): if True, stops earth rotation to sample fixed u,v
@@ -1272,11 +1285,20 @@ class Movie(object):
 
                tau (float): the base opacity at all sites, or a dict giving one opacity per site
                taup (float): the fractional std. dev. of the random error on the opacities
-               gain_offset (float): the base gain offset at all sites
-                                    or a dict giving one gain offset per site
                gainp (float): the fractional std. dev. of the random error on the gains
-               dterm_offset (float): the base dterm offset at all sites
-                                     or a dict giving one dterm offset per site
+                              or a dict giving one std. dev. per site      
+
+               gain_offset (float): the base gain offset at all sites,
+                                    or a dict giving one gain offset per site
+               dterm_offset (float): the base std. dev. of random additive error at all sites,
+                                    or a dict giving one std. dev. per site
+
+               rlratio_std (float): the fractional std. dev. of the R/L gain offset
+                                    or a dict giving one std. dev. per site                                          
+               rlphase_std (float): std. dev. of R/L phase offset, 
+                                    or a dict giving one std. dev. per site
+                                    a negative value samples from uniform                                          
+
 
                caltable_path (string): If not None, path and prefix for saving the applied caltable
                seed (int): seeds the random component of the noise terms. DO NOT set to 0!
@@ -1300,6 +1322,7 @@ class Movie(object):
                             mjd=mjd, polrep=polrep_obs,
                             tau=tau, timetype=timetype,
                             elevmin=elevmin, elevmax=elevmax,
+                            no_elevcut_space=no_elevcut_space,
                             fix_theta_GMST=fix_theta_GMST)
 
         # Observe on the same baselines as the empty observation and add noise
@@ -1317,6 +1340,7 @@ class Movie(object):
                                 taup=taup,
                                 gain_offset=gain_offset, gainp=gainp, 
                                 dterm_offset=dterm_offset,
+                                rlratio_std=rlratio_std,rlphase_std=rlphase_std,
                                 caltable_path=caltable_path, seed=seed, sigmat=sigmat,
                                 verbose=verbose)
 
